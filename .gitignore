@@ -1,0 +1,28 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 日志(注意:*.log 匹配不到 vite.log.err 这类后缀,必须单独写)
+*.log
+*.log.err
+*.err.log
+logs/
+
+# Redis 快照
+dump.rdb
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 本地工具状态(DSH 运行时会话目录,与项目无关)
+.omo/
