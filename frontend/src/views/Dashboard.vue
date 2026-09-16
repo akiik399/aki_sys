@@ -12,9 +12,14 @@
         </el-descriptions-item>
         <el-descriptions-item label="默认账号">admin / admin123</el-descriptions-item>
         <el-descriptions-item label="接口文档">
-          <a href="http://localhost:8080/swagger-ui.html" target="_blank">
-            http://localhost:8080/swagger-ui.html
-          </a>
+          <!-- 开发环境指向本地后端;生产构建时 VITE_API_DOC_URL 为空,改为提示文案。
+               原来这里硬编码 http://localhost:8080/swagger-ui.html,线上访问者点开
+               只会打开自己的本机 8080,而生产配置(application-prod.yml)又把
+               Swagger 关掉了,所以那行在生产环境一定是死链。 -->
+          <a v-if="apiDocUrl" :href="apiDocUrl" target="_blank" rel="noopener">{{ apiDocUrl }}</a>
+          <span v-else style="color: var(--el-text-color-secondary)">
+            生产环境已关闭(需要时改 application-prod.yml 并加 IP 白名单)
+          </span>
         </el-descriptions-item>
       </el-descriptions>
 
@@ -34,4 +39,10 @@
 import { useUserStore } from '@/store/user'
 
 const store = useUserStore()
+
+// import.meta.env 的值在【构建时】就替换成字面量了,所以生产包里不会留下
+// localhost 这种开发地址;开发时未设置则回退到本地 Swagger 地址。
+const apiDocUrl = import.meta.env.PROD
+  ? (import.meta.env.VITE_API_DOC_URL || '')
+  : (import.meta.env.VITE_API_DOC_URL || 'http://localhost:8080/swagger-ui.html')
 </script>

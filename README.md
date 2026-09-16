@@ -58,6 +58,8 @@ aki_sys/
 - 运行日志统一输出到 `logs/`(backend.log / frontend.log / redis.log)。
 - 实现细节:`.bat` 只是 ASCII 启动器,真正逻辑在 `scripts/*.ps1`(中文提示放在 PowerShell 里,避开 cmd 代码页乱码问题)。
 
+> 部署到 Linux 服务器请见 **`deploy/README.md`**(本地构建 + scp 上传 + systemd/nginx 配置,`deploy/deploy.ps1` 一键发版)。
+
 ## 快速启动(手动方式)
 
 ### 0. 环境要求

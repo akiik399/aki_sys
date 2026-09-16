@@ -1,0 +1,63 @@
+# =====================================================
+# 生产环境配置 —— 用 --spring.profiles.active=prod 激活
+#
+# 原则:敏感信息一律走环境变量,不写进 jar。
+# 环境变量在 systemd 里用 EnvironmentFile=/etc/aki-admin/aki-admin.env 注入。
+#
+# 变量名映射(Spring Boot 宽松绑定):
+#   AKI_DB_HOST / AKI_DB_PORT / AKI_DB_NAME
+#   AKI_DB_USERNAME / AKI_DB_PASSWORD        -> spring.datasource.*
+#   AKI_REDIS_HOST / AKI_REDIS_PORT / AKI_REDIS_PASSWORD / AKI_REDIS_DB
+#   AKI_JWT_SECRET / AKI_JWT_EXPIRE_SECONDS
+#   AKI_PORT                                 -> server.port
+# =====================================================
+server:
+  port: ${AKI_PORT:8080}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 密码会被拼进下面的 JDBC URL,因此限制字符集为字母、数字和 . _ @ # % ^ + = -
+    # (server-init.sh 创建库账号时按同一规则校验)。
+    # 用了这个字符集就不需要任何转义 —— 不要手工做 URL 编码:
+    # @ 属于允许字符,写成 %40 会让密码和后端实际发送的值对不上。
+    url: jdbc:mysql://${AKI_DB_HOST:127.0.0.1}:${AKI_DB_PORT:3306}/${AKI_DB_NAME:aki_sys}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${AKI_DB_USERNAME:root}
+    password: ${AKI_DB_PASSWORD:}
+  data:
+    redis:
+      host: ${AKI_REDIS_HOST:127.0.0.1}
+      port: ${AKI_REDIS_PORT:6379}
+      # 服务器上的 Redis 建议设密码;不设密码就把这行留空
+      password: ${AKI_REDIS_PASSWORD:}
+      database: ${AKI_REDIS_DB:0}
+      timeout: 5s
+
+# 生产环境关闭 SQL 明细日志(DEBUG 级会把每条 SQL 打进日志,量大且泄露数据)
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+# Swagger 生产环境关闭,避免接口结构对外暴露。
+# 若确实需要在线调试,把 api-docs.enabled 改成 true 再用 nginx 加 IP 白名单。
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  charset:
+    console: UTF-8
+    file: UTF-8
+  file:
+    name: /var/log/aki-admin/aki-admin.log
+  level:
+    root: INFO
+    com.aki.admin: INFO
+
+aki:
+  jwt:
+    # 必须替换!命令生成:openssl rand -base64 48
+    secret: ${AKI_JWT_SECRET}
+    expire-seconds: ${AKI_JWT_EXPIRE_SECONDS:28800}

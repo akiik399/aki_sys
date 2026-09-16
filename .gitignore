@@ -26,3 +26,14 @@ Thumbs.db
 
 # 本地工具状态(DSH 运行时会话目录,与项目无关)
 .omo/
+
+# SSH 密钥:私钥一旦进仓库(尤其仓库是公开的)= 对应服务器可被直接登录
+fwy19980901.+
+fwy19980901.+.pub
+id_rsa*
+id_ed25519*
+*.pem
+
+# 生产环境变量文件(只提交 .example 模板)
+deploy/*.env
+!deploy/*.env.example

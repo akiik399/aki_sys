@@ -1,0 +1,58 @@
+# =====================================================
+# aki-admin 后端 systemd 服务
+# 安装位置: /etc/systemd/system/aki-admin.service
+# 启用命令: sudo systemctl daemon-reload && sudo systemctl enable --now aki-admin
+# =====================================================
+[Unit]
+Description=aki_sys 后台管理系统后端 (Spring Boot 3)
+Documentation=https://github.com/akiik399/aki_sys
+After=network-online.target mysql.service redis-server.service
+Wants=network-online.target
+# 注意:MySQL/Redis 的服务名在不同发行版不一样
+#   Ubuntu/Debian: mysql.service / redis-server.service
+#   CentOS/RHEL:   mysqld.service / redis.service
+# 名字对不上会导致本行无效(不会报错,只是不等待)。可用
+#   systemctl list-units --type=service | grep -Ei 'mysql|redis'
+# 确认后改成实际名字。
+
+[Service]
+Type=simple
+User=aki
+Group=aki
+WorkingDirectory=/opt/aki-admin
+
+# 敏感配置(数据库密码 / JWT 密钥)在这两个文件里,权限必须是 600
+EnvironmentFile=/etc/aki-admin/aki-admin.env
+EnvironmentFile=-/etc/aki-admin/aki-admin.local.env
+
+# 关键:中文只靠 application.yml 的 logging.charset 还不够。
+# JDK 17 在 Linux 上默认按 LANG 决定 file.encoding,若服务器 locale 是 C/POSIX,
+# System.out 与文件名的编码都会退化成 ANSI,中文日志/中文文件名就会乱码。
+# 这三个参数强制 UTF-8,和本地 .bat 启动器保持一致。
+ExecStart=/usr/bin/java \
+    -Dfile.encoding=UTF-8 \
+    -Dstdout.encoding=UTF-8 \
+    -Dstderr.encoding=UTF-8 \
+    -XX:+HeapDumpOnOutOfMemoryError \
+    -XX:HeapDumpPath=/var/log/aki-admin \
+    -Xms256m -Xmx512m \
+    -jar /opt/aki-admin/aki-admin.jar \
+    --spring.profiles.active=prod
+
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+
+# 日志:应用自己写 /var/log/aki-admin/aki-admin.log,
+# 这里再收一份 stdout(启动失败时的报错只会出现在这里,排查必看)
+StandardOutput=append:/var/log/aki-admin/stdout.log
+StandardError=append:/var/log/aki-admin/stdout.log
+
+# 安全加固:限制服务能碰到的路径
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
