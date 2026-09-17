@@ -167,7 +167,7 @@ sudo journalctl -u aki-admin -n 100    # systemd 侧日志(启动失败先看这
 
 # 日志
 tail -f /var/log/aki-admin/aki-admin.log    # 应用日志
-tail -f /var/log/aki-admin/stdout.log       # 标准输出
+sudo journalctl -u aki-admin -f             # 标准输出(启动失败的报错在这里)
 tail -f /var/log/nginx/aki-admin.error.log  # nginx 错误
 
 # nginx

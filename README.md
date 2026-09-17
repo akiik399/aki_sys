@@ -28,18 +28,27 @@ aki_sys/
 │       │   ├── mapper/
 │       │   ├── security/    # JwtUtil / AuthInterceptor / UserContext
 │       │   └── service/
-│       └── resources/application.yml
+│       └── resources/
+│           ├── application.yml       # 开发配置
+│           └── application-prod.yml  # 生产配置(数据库/Redis/JWT 走环境变量注入)
 ├── frontend/                # Vue3 前端
 │   └── src/
 │       ├── api/             # axios 封装 + 接口
-│       ├── layout/          # 后台布局(侧边栏/顶栏)
-│       ├── router/          # 路由 + 登录守卫
+│       ├── config/          # 站点配置(站名 / 导航 / 页脚)
+│       ├── layout/          # SiteLayout 公开站点 + AdminLayout 管理后台
+│       ├── router/          # 路由 + 白名单守卫(公开区 与 /admin 管理区)
 │       ├── store/           # Pinia 用户状态
-│       └── views/           # 登录 / 首页 / 用户管理 / 角色管理
-└── sql/
-    ├── init.sql             # 建库建表脚本
-    ├── sample_data.sql      # 示例角色/用户(练习用)
-    └── fix_mojibake.sql     # 中文乱码修复(幂等)
+│       └── views/           # 公开页(site/) / 后台页(system/)
+├── deploy/                  # Linux 部署脚本与配置(详见 deploy/README.md)
+├── docs/                    # 项目文档(面试准备文档 / 个人主页改造计划)
+├── scripts/                 # 启停脚本的 PowerShell 实现(被 .bat 调用)
+├── sql/
+│   ├── init.sql             # 建库建表脚本(含 DROP,仅适合空白库)
+│   ├── homepage_init.sql    # 个人主页内容表(幂等,可重复执行)
+│   ├── sample_data.sql      # 示例角色/用户(练习用)
+│   └── fix_mojibake.sql     # 中文乱码修复(幂等)
+├── start-all.bat            # 一键启动(会按时间戳判断是否需要重新打包)
+└── stop-all.bat             # 一键停止
 ```
 
 ## 项目文档
@@ -50,7 +59,7 @@ aki_sys/
 
 | 脚本 | 作用 |
 |---|---|
-| `start-all.bat` | **双击即可**:检查 MySQL 服务 → 启动 Redis → 启动后端(jar 不存在会自动 Maven 打包)→ 启动前端(无 node_modules 会自动 npm install)→ 等待就绪 → 自动打开浏览器 |
+| `start-all.bat` | **双击即可**:检查 MySQL 服务 → 启动 Redis → 启动后端(jar 不存在**或源码比 jar 新**会自动 Maven 打包)→ 启动前端(无 node_modules 会自动 npm install)→ 等待就绪 → 自动打开浏览器 |
 | `stop-all.bat` | 停止后端(8080)、前端(5173)、Redis(6379);MySQL 服务不动 |
 
 - 两个脚本都是**幂等**的:已在运行的服务会显示"[跳过]",不会重复启动。

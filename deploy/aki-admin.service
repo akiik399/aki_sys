@@ -43,10 +43,17 @@ SuccessExitStatus=143
 Restart=always
 RestartSec=5
 
-# 日志:应用自己写 /var/log/aki-admin/aki-admin.log,
-# 这里再收一份 stdout(启动失败时的报错只会出现在这里,排查必看)
-StandardOutput=append:/var/log/aki-admin/stdout.log
-StandardError=append:/var/log/aki-admin/stdout.log
+# 日志:应用自己写 /var/log/aki-admin/aki-admin.log(见 application-prod.yml)。
+# stdout/stderr 用 systemd 的默认行为收进 journald:
+#   sudo journalctl -u aki-admin -n 100 --no-pager
+# 启动失败时的报错(端口被占、env 缺失、Java 路径不对)只会出现在这里,排查必看。
+#
+# 这里【不要】写 StandardOutput=append:/var/log/aki-admin/stdout.log:
+# append: 是 systemd 240 才引入的写法,而本项目支持 Ubuntu 18.04(systemd 237)、
+# CentOS 8(systemd 239);在那些系统上这一行无法解析,会导致整个 unit 加载失败、
+# 服务根本起不来(表现为 systemctl 报 unit 无效,而不是应用报错)。
+# 确实想要一份落盘的 stdout,用 journalctl 转发:
+#   journalctl -u aki-admin -f > /var/log/aki-admin/stdout.log
 
 # 安全加固:限制服务能碰到的路径
 NoNewPrivileges=true

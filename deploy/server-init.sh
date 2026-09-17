@@ -291,24 +291,29 @@ else
     echo "        mysql --default-character-set=utf8mb4 -u root -p < ${SQL_DIR}/homepage_init.sql"
 fi
 
+# 密码传递方式:用 MYSQL_PWD 环境变量,不用 -p"$PW"。
+# -p 会把明文密码放进进程的**命令行参数**,同机任何用户 `ps aux` 都能看到;
+# MYSQL_PWD 只存在于该进程的环境里(/proc/<pid>/environ,仅 root 可读)。
+# 官方也提示 MYSQL_PWD 不算安全,但比命令行参数高一个量级,
+# 而这里是"本机 root 初始化数据库"的场景,没有更轻量的替代方案。
 mysql_query() {
     case "$MYSQL_MODE" in
         socket)   mysql -N -B -e "$1" ;;
-        password) mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -N -B -e "$1" ;;
+        password) MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -N -B -e "$1" ;;
         *)        return 1 ;;
     esac
 }
 mysql_exec() {
     case "$MYSQL_MODE" in
         socket)   mysql -e "$1" ;;
-        password) mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "$1" ;;
+        password) MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root -e "$1" ;;
         *)        return 1 ;;
     esac
 }
 mysql_import() {
     case "$MYSQL_MODE" in
         socket)   mysql --default-character-set=utf8mb4 < "$1" ;;
-        password) mysql -u root -p"${MYSQL_ROOT_PASSWORD}" --default-character-set=utf8mb4 < "$1" ;;
+        password) MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -u root --default-character-set=utf8mb4 < "$1" ;;
         *)        return 1 ;;
     esac
 }
@@ -325,8 +330,17 @@ fi
 # init.sql 里有 DROP TABLE IF EXISTS,在空白库上是安全的;
 # 但千万不要在有数据的库上重跑 —— 所以这里先用 information_schema 判断一次。
 if [[ "$MYSQL_MODE" != "none" && -f "${SQL_DIR}/init.sql" ]]; then
-    DB_EXISTS="$(mysql_query "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='aki_sys'" 2>/dev/null || echo 0)"
-    if [[ "$DB_EXISTS" == "0" ]]; then
+    # 关键:必须区分"查到了 0(库确实不存在)"和"查询本身失败"。
+    # 原来写的是 `|| echo 0`,把失败也变成 0 —— 一旦 MySQL 刚启动还没就绪、
+    # 这次查询瞬时失败,而紧接着的导入又成功了,就会在已有数据的库上跑 init.sql;
+    # 它含 DROP TABLE IF EXISTS,直接把 sys_user / sys_role 清空。
+    # 所以失败时取哨兵值并跳过导入:宁可让你手动补一次,也绝不盲跑 DROP。
+    DB_EXISTS="$(mysql_query "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='aki_sys'" 2>/dev/null)" || DB_EXISTS="QUERY_FAILED"
+    if [[ "$DB_EXISTS" == "QUERY_FAILED" || -z "$DB_EXISTS" ]]; then
+        warn "无法确认库 aki_sys 是否存在(查询失败),已跳过 init.sql —— 它含 DROP TABLE,不能盲跑"
+        echo "      确认 MySQL 正常后重跑本脚本;或手动导入:"
+        echo "      mysql --default-character-set=utf8mb4 -u root -p < ${SQL_DIR}/init.sql"
+    elif [[ "$DB_EXISTS" == "0" ]]; then
         if mysql_import "${SQL_DIR}/init.sql"; then
             ok "已执行 init.sql(建库建表)"
         else
@@ -341,6 +355,24 @@ elif [[ ! -f "${SQL_DIR}/init.sql" ]]; then
     warn "没找到 init.sql,请手动导入(务必带字符集参数,否则中文会双重编码成乱码):"
     echo "      mysql --default-character-set=utf8mb4 -u root -p < sql/init.sql"
     echo "      mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql"
+fi
+
+# 个人主页内容表(homepage_init.sql)。
+# 它和 init.sql 性质不同:全部是 CREATE TABLE IF NOT EXISTS,幂等、不清数据,
+# 所以不需要像 init.sql 那样先判断库是否存在,每次都可以安全执行。
+# 漏掉它的后果很容易被忽略:sys_user / sys_role 建好了、后端也能起来,
+# 但 site_profile / site_project / site_post 等七张表不存在 ——
+# 公开主页和后台内容管理一访问就报 table doesn't exist。
+if [[ "$MYSQL_MODE" != "none" && -f "${SQL_DIR}/homepage_init.sql" ]]; then
+    if mysql_import "${SQL_DIR}/homepage_init.sql"; then
+        ok "已执行 homepage_init.sql(个人主页内容表,幂等)"
+    else
+        warn "执行 homepage_init.sql 失败(库 aki_sys 是否已建?),请手动导入:"
+        echo "      mysql --default-character-set=utf8mb4 -u root -p < ${SQL_DIR}/homepage_init.sql"
+    fi
+elif [[ "$MYSQL_MODE" != "none" ]]; then
+    warn "没找到 homepage_init.sql,个人主页的七张 site_* 表不会创建"
+    echo "      手动导入:mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql"
 fi
 
 # 应用专用数据库账号:比直接用 root 更好 —— 万一被注入,影响面只有这一个库
@@ -614,18 +646,29 @@ step "部署用户免密 sudo"
 
 DEPLOY_USER="${SUDO_USER:-}"
 if [[ -n "$DEPLOY_USER" && "$DEPLOY_USER" != "root" ]]; then
-    cat > /etc/sudoers.d/aki-deploy <<EOF
-# 由 server-init.sh 生成:允许部署用户免密执行部署所需命令
+    # 这里给的是 NOPASSWD:ALL(权限等同于 root),不是"部署所需命令"的白名单 ——
+    # 注释原先写作"部署所需命令",容易让人误以为已收窄。这是有意的取舍:
+    # deploy.ps1 会调用 systemctl / install / chown / mysql / tar 等一大批命令,
+    # 收窄成白名单时只要漏掉一条,发版就会在服务器上失败,而那时你很难立刻定位。
+    # 要收窄的话,先把 deploy.ps1 与 bootstrap.ps1 里所有 sudo 调用列全,再改这里。
+    #
+    # 写法:先写临时文件、visudo 校验通过后再 install 到 /etc/sudoers.d/。
+    # 不要直接写目标文件再校验:那样在校验之前 sudo 就已经会读到这个坏文件,
+    # 语法一旦有误,你可能把自己彻底锁在 sudo 之外。
+    SUDOERS_TMP="$(mktemp)"
+    cat > "$SUDOERS_TMP" <<EOF
+# 由 server-init.sh 生成:部署用户免密 sudo(本地 deploy.ps1 依赖它)
+# 权限等同于 root,仅适用于个人 / 单机部署场景。
 ${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL
 EOF
-    chmod 440 /etc/sudoers.d/aki-deploy
-    if visudo -c -f /etc/sudoers.d/aki-deploy >/dev/null; then
+    if visudo -c -f "$SUDOERS_TMP" >/dev/null; then
+        install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/aki-deploy
         ok "已为 $DEPLOY_USER 配置免密 sudo(本地 deploy.ps1 依赖它)"
     else
-        rm -f /etc/sudoers.d/aki-deploy
-        warn "sudoers 校验失败,已回滚。请手动配置:"
+        warn "sudoers 内容校验失败,未安装。请手动配置:"
         echo "      echo '${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/aki-deploy && sudo chmod 440 /etc/sudoers.d/aki-deploy"
     fi
+    rm -f "$SUDOERS_TMP"
 else
     warn "无法确定部署用户(不是通过 sudo 执行的),请手动配置免密 sudo:"
     echo "      echo '你的用户名 ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/aki-deploy && sudo chmod 440 /etc/sudoers.d/aki-deploy"

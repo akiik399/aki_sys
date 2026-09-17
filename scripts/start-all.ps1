@@ -60,11 +60,39 @@ if (Test-Listening 6379) {
 }
 
 # ---------- 2. 后端 ----------
+# 判断 jar 是否需要重新打包:不存在,或任一源码/ pom 比 jar 新。
+# 注意:原来只在 "jar 不存在" 时才打包 —— 改完 Java 代码后直接双击本脚本,
+# 它会拿旧 jar 启动,你会以为改动没生效(排查半天)。这里改成按时间戳判断。
+$needBuild = $false
+$buildReason = ''
 if (-not (Test-Path $jar)) {
-    Write-Host '[构建] 未找到 jar,正在用 Maven 打包,请稍候 ...'
-    Push-Location $backend
-    & mvn -B -DskipTests clean package
-    Pop-Location
+    $needBuild = $true
+    $buildReason = 'jar 不存在'
+} else {
+    $jarTime = (Get-Item $jar).LastWriteTime
+    $newest = Get-ChildItem (Join-Path $backend 'src'), (Join-Path $backend 'pom.xml') -Recurse -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($newest -and $newest.LastWriteTime -gt $jarTime) {
+        $needBuild = $true
+        $buildReason = "源码比 jar 新($($newest.Name))"
+    }
+}
+
+if ($needBuild) {
+    if (Test-Listening 8080) {
+        # 后端在跑 = jar 被 JVM 锁着,`mvn clean` 删不掉 target,重打包必然失败。
+        # 与其抛一堆看不懂的 Maven 报错,不如直接说清怎么办。
+        Write-Host "[提示] 检测到$buildReason,但后端正在运行(8080),jar 被锁着无法重新打包。"
+        Write-Host '       要跑最新代码:先运行 stop-all.bat,再运行本脚本。'
+    } else {
+        Write-Host "[构建] $buildReason,正在用 Maven 打包,请稍候 ..."
+        Push-Location $backend
+        & mvn -B -DskipTests clean package
+        Pop-Location
+        if (-not (Test-Path $jar)) {
+            Write-Host '[失败] 打包没有产出 jar,请检查上面的 Maven 输出'
+        }
+    }
 }
 if (Test-Listening 8080) {
     Write-Host '[跳过] 后端已在运行  (8080)'

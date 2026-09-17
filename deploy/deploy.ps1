@@ -341,13 +341,23 @@ try {
     $initScript = Join-Path $PSScriptRoot 'server-init.sh'
     if (-not (Test-Path $initScript)) { throw "找不到 $initScript" }
 
-    # 只传配置类文件到 /tmp/aki-deploy-conf,然后带 SQL_DIR 重跑 server-init.sh。
+    # 只传配置类文件到 /tmp/aki-deploy-conf,再原地执行 server-init.sh。
     # 脚本是幂等的:软件已装会跳过,库已存在不会重跑 init.sql,
     # 已填好密码的 aki-admin.env 也不会被覆盖。
     Invoke-Remote 'rm -rf /tmp/aki-deploy-conf && mkdir -p /tmp/aki-deploy-conf' | Out-Null
     # 注意:这里必须写成一行。PowerShell 5.1 不允许把管道符 | 放在行尾
     # (7.x 可以),分行写会在 5.1 上报 "Missing expression after '|'"。
     $confFiles = @('nginx.conf', 'aki-admin.service', 'aki-admin.env.example', 'server-init.sh') | ForEach-Object { Join-Path $PSScriptRoot $_ } | Where-Object { Test-Path $_ }
+    # 【sql/*.sql 必须一并放进这个目录】server-init.sh 找 init.sql 的顺序是
+    #   $SQL_DIR_OVERRIDE -> ./sql -> <脚本目录>/../sql -> <脚本目录>
+    # 而这里是用 `sudo bash <绝对路径>` 执行的(不会切换 CWD),前三项全部落空,
+    # 只有"sql 与脚本同目录"这一条能命中。漏掉的后果非常隐蔽:脚本只打一行
+    # [!] 没找到 sql/init.sql 就继续跑完,于是部署全绿、健康检查通过,
+    # 但库里根本没有表,登录时才报 table doesn't exist。
+    # (第 0.5 步传到 /tmp/aki-sql 的那份是给手动导入用的,和这里是两个目录;
+    #  这段代码只在"首次部署"时执行,不会每次发版都重复上传。)
+    $initSqlFiles = @('init.sql', 'homepage_init.sql') | ForEach-Object { Join-Path (Join-Path $repoRoot 'sql') $_ } | Where-Object { Test-Path $_ }
+    $confFiles = @($confFiles) + @($initSqlFiles)
     if ((Invoke-Upload -Paths $confFiles -Destination "${Server}:/tmp/aki-deploy-conf/") -ne 0) { throw 'scp 上传部署配置失败' }
 
     # 这个块交给远端的 bash 执行,所以写成单引号 here-string(见前面 restartScript 的说明)。
