@@ -21,6 +21,15 @@
           </a>
           <a class="social-btn" :href="`mailto:${profile.email}`">邮箱</a>
         </div>
+
+        <!-- 注册入口放一份在首屏:只放在导航栏右上角时太容易被忽略 -->
+        <div v-if="!siteUser.isLoggedIn" class="hero-cta">
+          <router-link to="/signup" class="cta-btn primary">注册账号</router-link>
+          <router-link to="/signin" class="cta-btn">已有账号,去登录</router-link>
+        </div>
+        <div v-else class="hero-cta">
+          <span class="cta-welcome">你好,{{ siteUser.displayName }}</span>
+        </div>
       </div>
     </section>
 
@@ -49,6 +58,11 @@
 </template>
 
 <script setup>
+import { useSiteUserStore } from '@/store/siteUser'
+
+// 用于首屏的注册/登录入口:已登录时改成显示昵称
+const siteUser = useSiteUserStore()
+
 // 阶段 0:先用占位数据把页面结构立起来。
 // 阶段 1 会改成 onMounted 里调 GET /api/public/profile,读不到时回落到这份默认值。
 const profile = {
@@ -165,6 +179,50 @@ const sections = [
 .social-btn:hover {
   background: rgba(255, 255, 255, 0.3);
   transform: translateY(-1px);
+}
+
+/* ---------- 首屏的注册 / 登录入口 ---------- */
+.hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.cta-btn {
+  font-size: 14px;
+  padding: 8px 20px;
+  border-radius: 22px;
+  text-decoration: none;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(6px);
+  transition: all 0.18s;
+}
+
+.cta-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+/* 主按钮反白,和背景的深蓝渐变拉开对比 —— 入口要一眼能找到 */
+.cta-btn.primary {
+  background: #fff;
+  color: #1b2f6b;
+  font-weight: 600;
+  border-color: #fff;
+  box-shadow: 0 10px 24px -12px rgba(2, 10, 30, 0.9);
+}
+
+.cta-btn.primary:hover {
+  background: #f2f6ff;
+}
+
+.cta-welcome {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 8px 0;
 }
 
 /* ---------- 板块卡片(玻璃拟态) ---------- */
