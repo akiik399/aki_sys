@@ -2,8 +2,11 @@ package com.aki.admin.service;
 
 import com.aki.admin.common.BusinessException;
 import com.aki.admin.common.RateLimiter;
+import com.aki.admin.dto.SiteEmailCodeRequest;
 import com.aki.admin.dto.SiteLoginRequest;
 import com.aki.admin.dto.SiteRegisterRequest;
+import com.aki.admin.dto.SiteResetPasswordRequest;
+import com.aki.admin.dto.SiteResetVerifyRequest;
 import com.aki.admin.entity.SiteUser;
 import com.aki.admin.mapper.SiteUserMapper;
 import com.aki.admin.security.JwtUtil;
@@ -11,6 +14,8 @@ import com.aki.admin.security.RedisKeys;
 import com.aki.admin.security.SiteUserContext;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -23,6 +28,8 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * 站点访客账号服务:注册 / 登录 / 退出 / 当前用户。
@@ -35,6 +42,11 @@ import java.util.Map;
 @Service
 public class SiteAccountService {
 
+    private static final Logger log = LoggerFactory.getLogger(SiteAccountService.class);
+
+    /** 一次性重置令牌有效期 */
+    private static final Duration RESET_TOKEN_TTL = Duration.ofMinutes(10);
+
     /** 同一 IP 每小时允许的注册尝试次数 */
     private static final int REGISTER_LIMIT_PER_HOUR = 10;
     /** 同一 IP 每分钟允许的登录尝试次数(防密码暴力破解) */
@@ -46,6 +58,7 @@ public class SiteAccountService {
     private final StringRedisTemplate redisTemplate;
     private final CaptchaService captchaService;
     private final RateLimiter rateLimiter;
+    private final EmailCodeService emailCodeService;
 
     @Value("${aki.jwt.expire-seconds}")
     private long expireSeconds;
@@ -56,13 +69,15 @@ public class SiteAccountService {
 
     public SiteAccountService(SiteUserMapper siteUserMapper, PasswordEncoder passwordEncoder,
                               JwtUtil jwtUtil, StringRedisTemplate redisTemplate,
-                              CaptchaService captchaService, RateLimiter rateLimiter) {
+                              CaptchaService captchaService, RateLimiter rateLimiter,
+                              EmailCodeService emailCodeService) {
         this.siteUserMapper = siteUserMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
         this.redisTemplate = redisTemplate;
         this.captchaService = captchaService;
         this.rateLimiter = rateLimiter;
+        this.emailCodeService = emailCodeService;
     }
 
     /**
@@ -173,6 +188,103 @@ public class SiteAccountService {
         result.put("token", token);
         result.put("user", buildUserInfo(user));
         return result;
+    }
+
+    // ---------------- 找回密码(三步:发码 -> 验码换令牌 -> 用令牌改密) ----------------
+
+    /**
+     * 第一步:发送找回密码验证码。
+     *
+     * **对外返回统一话术**,无论邮箱是否注册过。原因:
+     * 如果这里区分"邮箱不存在",这个接口就成了账号枚举工具 ——
+     * 攻击者拿一份邮箱表挨个试,就能筛出你站点的注册用户。
+     *
+     * 注意 {@link EmailCodeService#guard} 必须无条件执行:它负责图形验证码、
+     * IP 限流、冷却与日配额。若把它挪到"邮箱存在"之后再执行,未注册邮箱就能
+     * 绕过全部限流,顺带把发码接口变成高频枚举器。
+     */
+    public void sendResetCode(SiteEmailCodeRequest request, HttpServletRequest httpRequest) {
+        String email = normalizeEmail(request.getEmail());
+        emailCodeService.guard(EmailCodeService.SCENE_RESET, email,
+                request.getCaptchaId(), request.getCaptchaCode(), httpRequest);
+
+        SiteUser user = findByEmail(email);
+        if (user != null && user.getStatus() != null && user.getStatus() == 1) {
+            emailCodeService.dispatch(EmailCodeService.SCENE_RESET, email);
+        } else {
+            // 不发送,但也不报错(见方法注释)。这里会有极小的时序差异
+            // (发了邮件的那条路径更慢),个人站点不为此再引入固定延时。
+            log.info("找回密码请求了未注册或已禁用的邮箱,已忽略发送");
+        }
+    }
+
+    /**
+     * 第二步:校验验证码,换发一次性重置令牌。
+     */
+    public Map<String, Object> verifyResetCode(SiteResetVerifyRequest request) {
+        String email = normalizeEmail(request.getEmail());
+        emailCodeService.verify(EmailCodeService.SCENE_RESET, email, request.getCode());
+
+        SiteUser user = findByEmail(email);
+        if (user == null) {
+            // 正常走不到:发码阶段就不会给未注册邮箱发。兜底防伪造。
+            throw new BusinessException("验证码无效,请重新获取");
+        }
+        String token = UUID.randomUUID().toString().replace("-", "");
+        redisTemplate.opsForValue().set(RedisKeys.resetToken(token),
+                String.valueOf(user.getId()), RESET_TOKEN_TTL);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("resetToken", token);
+        return result;
+    }
+
+    /**
+     * 第三步:用一次性令牌设置新密码。
+     *
+     * 改完密码必须**踢掉该用户所有已登录会话**,否则"改密码"这个动作就失去意义 ——
+     * 盗号者手里那串 token 在 8 小时有效期内照样能用。
+     */
+    public void resetPassword(SiteResetPasswordRequest request) {
+        String key = RedisKeys.resetToken(request.getResetToken());
+        String userId = redisTemplate.opsForValue().get(key);
+        if (userId == null) {
+            throw new BusinessException("重置链接已过期,请重新获取验证码");
+        }
+        // 一次性:取到就删,防止同一个令牌被用两次
+        redisTemplate.delete(key);
+
+        SiteUser user = siteUserMapper.selectById(Long.valueOf(userId));
+        if (user == null) {
+            throw new BusinessException("账号不存在");
+        }
+        SiteUser update = new SiteUser();
+        update.setId(user.getId());
+        update.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        siteUserMapper.updateById(update);
+
+        revokeAllSessions(user.getId());
+        log.info("站点访客 id={} 已重置密码,并踢掉其全部登录会话", user.getId());
+    }
+
+    /**
+     * 删除该用户所有已签发的站点 token(靠登录时维护的反向索引)。
+     * 退出登录只删单个 token,这里是批量版。
+     */
+    private void revokeAllSessions(Long siteUserId) {
+        String indexKey = RedisKeys.siteUserTokens(siteUserId);
+        Set<String> tokens = redisTemplate.opsForSet().members(indexKey);
+        if (tokens != null) {
+            for (String token : tokens) {
+                redisTemplate.delete(RedisKeys.loginTokenSite(token));
+            }
+        }
+        redisTemplate.delete(indexKey);
+    }
+
+    private SiteUser findByEmail(String email) {
+        return siteUserMapper.selectOne(
+                new LambdaQueryWrapper<SiteUser>().eq(SiteUser::getEmail, email));
     }
 
     private Map<String, Object> buildUserInfo(SiteUser user) {

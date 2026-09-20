@@ -65,3 +65,27 @@ aki:
     # 站点访客注册开关。公开注册一旦被机器人刷爆,把它改成 false 并
     # systemctl restart aki-admin 即可关闭注册接口,不必改代码重新发版。
     register-enabled: ${AKI_REGISTER_ENABLED:true}
+  mail:
+    # 生产**强制** smtp:这里写死,不给环境变量覆盖的机会。
+    # 若允许切换,一旦有人把 AKI_MAIL_MODE 设成 log,所有验证码都会写进日志。
+    mode: smtp
+    from: ${AKI_MAIL_FROM:${AKI_MAIL_USERNAME}}
+
+# SMTP 配置。host 没有默认值 = 不配就启动失败(fail-fast),
+# 免得"服务起来了但验证码永远发不出去"这种更难查的状态。
+spring:
+  mail:
+    host: ${AKI_MAIL_HOST}
+    port: ${AKI_MAIL_PORT:465}
+    username: ${AKI_MAIL_USERNAME}
+    password: ${AKI_MAIL_PASSWORD}
+    default-encoding: UTF-8
+    properties:
+      mail.smtp.auth: true
+      # 云厂商普遍封禁出站 25 端口,所以默认走 465(SSL);
+      # 用 587(STARTTLS)的话把 AKI_MAIL_SSL 设为 false。
+      mail.smtp.ssl.enable: ${AKI_MAIL_SSL:true}
+      # 超时都设短一点:发信卡住会拖慢注册/找回密码接口
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000

@@ -48,3 +48,10 @@ aki:
     secret: aki-admin-secret-key-0123456789-abcdefghijklmn
     # token 有效期(秒),与 Redis 缓存一致
     expire-seconds: 28800
+  mail:
+    # 本地开发用 log 模式:验证码直接打到应用日志,不真发邮件
+    # (本机没装 Mailpit/Docker 时也能把找回密码流程跑通)。
+    # 生产环境由 application-prod.yml 强制成 smtp —— 那里 mode 是写死的,
+    # 且 MailService 构造时会再校验一次:激活 prod 却用 log 模式直接启动失败。
+    mode: log
+    from: no-reply@aki.local

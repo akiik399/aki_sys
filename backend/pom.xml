@@ -38,6 +38,14 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <!-- 邮件:用于找回密码 / 验证码登录。
+             生产必须走 SMTP(application-prod.yml 里 mode 硬编码为 smtp);
+             本地开发可切 log 模式,把验证码打到应用日志里看,省掉 Mailpit 依赖。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- MyBatis-Plus (Spring Boot 3) -->
         <dependency>
             <groupId>com.baomidou</groupId>

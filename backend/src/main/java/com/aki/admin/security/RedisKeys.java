@@ -62,4 +62,48 @@ public final class RedisKeys {
     public static String rateLoginIp(String ip) {
         return RATE_LOGIN_IP + ip;
     }
+
+    // ---------------- 站点访客:邮箱验证码(找回密码 / 验证码登录) ----------------
+
+    /** 发码接口按来源 IP 限流(防用你的邮箱配额轰炸第三方邮箱) */
+    public static final String RATE_SEND_CODE_IP = "aki:rate:code:ip:";
+
+    /** 邮箱验证码:{scene}:{email} -> 6 位数字,一次性消费 */
+    public static final String EMAIL_CODE = "aki:code:";
+
+    /** 单个验证码的校验尝试次数,防暴力猜码(6 位数字也要限次) */
+    public static final String EMAIL_CODE_TRY = "aki:code:try:";
+
+    /** 同一邮箱同一场景的发码冷却 */
+    public static final String EMAIL_CODE_COOLDOWN = "aki:code:cool:";
+
+    /** 每邮箱每日发码配额 */
+    public static final String EMAIL_CODE_QUOTA = "aki:code:quota:";
+
+    /** 验证码校验通过后换发的一次性重置令牌 -> siteUserId */
+    public static final String RESET_TOKEN = "aki:reset:";
+
+    public static String rateSendCodeIp(String ip) {
+        return RATE_SEND_CODE_IP + ip;
+    }
+
+    public static String emailCode(String scene, String email) {
+        return EMAIL_CODE + scene + ":" + email;
+    }
+
+    public static String emailCodeTry(String scene, String email) {
+        return EMAIL_CODE_TRY + scene + ":" + email;
+    }
+
+    public static String emailCodeCooldown(String scene, String email) {
+        return EMAIL_CODE_COOLDOWN + scene + ":" + email;
+    }
+
+    public static String emailCodeQuota(String email, String yyyyMMdd) {
+        return EMAIL_CODE_QUOTA + email + ":" + yyyyMMdd;
+    }
+
+    public static String resetToken(String token) {
+        return RESET_TOKEN + token;
+    }
 }

@@ -59,18 +59,23 @@ const routes = [
         meta: { title: '关于', desc: '关于我,阶段 1 与首页一起完善。' },
         props: (route) => ({ title: route.meta.title, description: route.meta.desc })
       },
-      // 站点访客认证页:属于公开区(无需登录),放在 SiteLayout 里保持站点外观一致
-      {
-        path: 'signup',
-        name: 'SignUp',
-        component: () => import('@/views/site/SignUp.vue'),
-        meta: { title: '注册' }
-      },
+      // 站点访客认证页:登录 / 注册 / 找回密码整合在同一个页面里
+      // (上方 Tab 切换登录注册,忘记密码是卡片内的三步流程),
+      // 属于公开区(无需登录),放在 SiteLayout 内以保持站点外观一致。
       {
         path: 'signin',
         name: 'SignIn',
-        component: () => import('@/views/site/SignIn.vue'),
+        component: () => import('@/views/site/Auth.vue'),
         meta: { title: '登录' }
+      },
+      // 保留旧路径做重定向:导航栏、外部书签、聊天里发过的链接可能还指向它们
+      {
+        path: 'signup',
+        redirect: { path: '/signin', query: { mode: 'register' } }
+      },
+      {
+        path: 'reset',
+        redirect: { path: '/signin', query: { mode: 'forgot' } }
       },
       // 公开区兜底 404(放在子路由最后,确保优先匹配上面的具名路由)
       {

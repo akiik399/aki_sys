@@ -38,7 +38,12 @@
           </template>
           <template v-else>
             <router-link to="/signin" class="auth-link">登录</router-link>
-            <router-link to="/signup" class="auth-link primary">注册</router-link>
+            <router-link
+              :to="{ path: '/signin', query: { mode: 'register' } }"
+              class="auth-link primary"
+            >
+              注册
+            </router-link>
           </template>
         </div>
       </div>

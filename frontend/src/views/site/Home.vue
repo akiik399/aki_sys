@@ -24,7 +24,12 @@
 
         <!-- 注册入口放一份在首屏:只放在导航栏右上角时太容易被忽略 -->
         <div v-if="!siteUser.isLoggedIn" class="hero-cta">
-          <router-link to="/signup" class="cta-btn primary">注册账号</router-link>
+          <router-link
+            :to="{ path: '/signin', query: { mode: 'register' } }"
+            class="cta-btn primary"
+          >
+            注册账号
+          </router-link>
           <router-link to="/signin" class="cta-btn">已有账号,去登录</router-link>
         </div>
         <div v-else class="hero-cta">
