@@ -95,10 +95,11 @@ ssh root@<服务器IP> "bash /tmp/aki-deploy/deploy/server-init.sh"
 > ```bash
 > MYSQL_ROOT_PASSWORD='你的root密码' bash /tmp/aki-deploy/deploy/server-init.sh
 > ```
-> 或者手动导入(务必带字符集参数):
+> 或者手动导入(务必带字符集参数;`init.sql` 含 `DROP TABLE`,只适合空白库):
 > ```bash
 > mysql --default-character-set=utf8mb4 -u root -p < /tmp/aki-deploy/sql/init.sql
 > mysql --default-character-set=utf8mb4 -u root -p < /tmp/aki-deploy/sql/homepage_init.sql
+> mysql --default-character-set=utf8mb4 -u root -p < /tmp/aki-deploy/sql/site_user_init.sql
 > ```
 
 ### 步骤 3:填好生产配置
@@ -203,13 +204,15 @@ sudo systemctl restart aki-admin
    ```bash
    mysql --default-character-set=utf8mb4 -u root -p < sql/init.sql
    mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql
+   mysql --default-character-set=utf8mb4 -u root -p < sql/site_user_init.sql
    ```
    漏了会把 UTF-8 中文按客户端编码二次编码,页面上出现 `杩愯惀浜哄憳`。已经乱了就用 `sql/fix_mojibake.sql` 就地修复。
 
-7. **两个 SQL 脚本性质不同**
+7. **三个 SQL 脚本性质不同**
    - `sql/init.sql`:**含 `DROP TABLE IF EXISTS`**,只适合空白库,重复执行会清空 `sys_user` / `sys_role`。
    - `sql/homepage_init.sql`:全部是 `CREATE TABLE IF NOT EXISTS`,可重复执行,不会动已有数据。
-   `server-init.sh` 已经做了判断:库不存在才跑 `init.sql`。
+   - `sql/site_user_init.sql`:也全部是 `CREATE TABLE IF NOT EXISTS`(建站点访客账号表 `site_user`),可重复执行,不会动已有数据。
+   `server-init.sh` 已经做了判断:库不存在才跑 `init.sql`;两个幂等脚本按 `IDEMPOTENT_SQLS` 白名单遍历导入。
 
 8. **`application-prod.yml` 里关掉了 Swagger**
    生产环境不暴露接口文档。需要在线调试就把 `springdoc.api-docs.enabled` 改 true,并给 nginx 加 IP 白名单,别直接敞开。
@@ -238,7 +241,7 @@ sudo systemctl restart aki-admin
 | `deploy.ps1` 报无法免密登录 | 没配密钥。按步骤 1 配好,或检查 `~/.ssh/config` 别名 |
 | 报 `用户 xxx 没有免密 sudo 权限` | 在服务器执行 `echo 'xxx ALL=(ALL) NOPASSWD:ALL' \| sudo tee /etc/sudoers.d/aki-deploy && sudo chmod 440 /etc/sudoers.d/aki-deploy` |
 | `systemctl status` 报 `Unable to access jarfile` | `/etc/systemd/system/aki-admin.service` 的 ExecStart 路径与 `/opt/aki-admin/` 下实际文件名不一致。本仓库两者都是 `aki-admin.jar`;若你改过 `-RemoteJarName`,记得同步改 unit 并 `systemctl daemon-reload` |
-| 登录时报 SQL 错误 / 表不存在 | `server-init.sh` 没能建库(常见于 CentOS/RHEL 的 root 临时密码)。按步骤 2 的提示带 `MYSQL_ROOT_PASSWORD` 重跑,或手动导入 `sql/init.sql` 与 `sql/homepage_init.sql` |
+| 登录时报 SQL 错误 / 表不存在 | `server-init.sh` 没能建库(常见于 CentOS/RHEL 的 root 临时密码)。按步骤 2 的提示带 `MYSQL_ROOT_PASSWORD` 重跑,或手动导入 `sql/init.sql`、`sql/homepage_init.sql` 与 `sql/site_user_init.sql` |
 | 后端日志 `Access denied for user 'aki'` | `/etc/aki-admin/aki-admin.env` 里的密码与数据库里的不一致。重跑 `server-init.sh` 即可对齐(它会对已存在的账号执行 `ALTER USER` 同步密码) |
 | Maven 报 `Unable to rename ... .jar.original` | 本地后端进程锁着 jar。先 `.\stop-all.bat`。若它显示"未在运行"但 jar 仍被锁,用 `netstat -ano \| findstr :8080` 查 PID 再 `taskkill /F /PID <PID>` |
 | 服务起不来,`journalctl` 里是数据库连接失败 | `/etc/aki-admin/aki-admin.env` 密码没改或不对。MySQL 8 的 `caching_sha2_password` 也可能需要 `ALTER USER ... IDENTIFIED WITH mysql_native_password` |
