@@ -38,6 +38,14 @@
         </el-form-item>
       </el-form>
       <div class="login-tip">默认账号: admin / admin123</div>
+
+      <!-- 这里是【后台账号】的登录入口,与站点访客账号是两套独立体系。
+           放一条回主页的路:否则误入这里的访客既找不到回去的路,
+           也不知道访客注册在哪(它在公开站点导航栏右上角)。 -->
+      <div class="login-back">
+        <router-link to="/" class="back-link">← 返回主页</router-link>
+        <span class="back-hint">访客注册在主页右上角「注册」</span>
+      </div>
     </el-card>
   </div>
 </template>
@@ -128,5 +136,26 @@ async function handleLogin() {
   text-align: center;
   color: #999;
   font-size: 12px;
+}
+.login-back {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #e4e9f2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.back-link {
+  color: #2b6cff;
+  text-decoration: none;
+}
+.back-link:hover {
+  text-decoration: underline;
+}
+.back-hint {
+  color: #aab3c0;
 }
 </style>
