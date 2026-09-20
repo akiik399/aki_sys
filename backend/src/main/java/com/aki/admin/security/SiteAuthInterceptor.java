@@ -14,20 +14,23 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import java.nio.charset.StandardCharsets;
 
 /**
- * 管理后台登录态校验拦截器:校验 token 且必须存在于 Redis(支持强制下线)
+ * 站点访客登录态校验拦截器,只作用于 {@code /api/account/**}。
  *
- * 只接受 scope=admin 的 token。站点访客的 token 即使签名合法也会在这里被拒 ——
- * 这是防止"访客越权访问后台接口"的第一道闸(原因见 {@link JwtUtil} 的类注释:
- * 两张用户表的 id 都从 1 开始,不带 scope 就无法区分)。
+ * 与管理后台的 {@link AuthInterceptor} 是**两条独立的认证域**:
+ * 本拦截器只接受 scope=site 的 token、只查 aki:login:site: 前缀的登录态、
+ * 只往 {@link SiteUserContext} 里放身份。站点接口永远不会去查 sys_user 表。
+ *
+ * 反向同理:{@link AuthInterceptor} 只接受 scope=admin。
+ * 任何一侧被绕过,另一侧仍然安全。
  */
 @Component
-public class AuthInterceptor implements HandlerInterceptor {
+public class SiteAuthInterceptor implements HandlerInterceptor {
 
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public AuthInterceptor(JwtUtil jwtUtil, StringRedisTemplate redisTemplate) {
+    public SiteAuthInterceptor(JwtUtil jwtUtil, StringRedisTemplate redisTemplate) {
         this.jwtUtil = jwtUtil;
         this.redisTemplate = redisTemplate;
     }
@@ -44,18 +47,16 @@ public class AuthInterceptor implements HandlerInterceptor {
         String token = auth.substring(7);
         try {
             Claims claims = jwtUtil.parse(token);
-            // 第一道闸:域校验。必须在查 Redis 之前做 ——
-            // site_user.id=1 与 sys_user.id=1 是两个人,只靠 id 无法区分。
-            if (!JwtUtil.SCOPE_ADMIN.equals(jwtUtil.getScope(claims))) {
+            // 只接受站点域:拿后台 token 来调站点接口同样会被拒(而不是当成访客放行)
+            if (!JwtUtil.SCOPE_SITE.equals(jwtUtil.getScope(claims))) {
                 return reject(response, "token 类型不匹配");
             }
-            Long userId = jwtUtil.getUserId(claims);
-            // 第二道闸:校验 Redis 中的登录态(退出登录后 token 立即失效)
-            String cached = redisTemplate.opsForValue().get(RedisKeys.loginTokenAdmin(token));
+            Long siteUserId = jwtUtil.getUserId(claims);
+            String cached = redisTemplate.opsForValue().get(RedisKeys.loginTokenSite(token));
             if (cached == null) {
                 return reject(response, "登录已失效,请重新登录");
             }
-            UserContext.set(userId, jwtUtil.getUsername(claims));
+            SiteUserContext.set(siteUserId, jwtUtil.getUsername(claims));
             return true;
         } catch (Exception e) {
             return reject(response, "token 无效或已过期");
@@ -64,7 +65,9 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception ex) {
-        UserContext.clear();
+        // ThreadLocal 必须清理:线程池里的线程会被复用,
+        // 不清理会让下一个请求读到上一个请求的身份。
+        SiteUserContext.clear();
     }
 
     private boolean reject(HttpServletResponse response, String msg) throws Exception {

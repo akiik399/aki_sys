@@ -18,6 +18,19 @@ function Test-Listening([int]$port) {
     [bool](Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
 }
 
+# 判断文件是否被进程占用:尝试以"独占"方式打开,打不开就是被锁。
+# 和 deploy.ps1 里的 Test-FileLocked 是同一个思路。
+function Test-FileLocked([string]$path) {
+    if (-not (Test-Path $path)) { return $false }
+    try {
+        $fs = [System.IO.File]::Open($path, 'Open', 'ReadWrite', 'None')
+        $fs.Close()
+        return $false
+    } catch {
+        return $true
+    }
+}
+
 function Start-Logged([string]$file, [string[]]$arguments, [string]$workDir, [string]$outLog, [string]$errLog) {
     Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $workDir `
         -WindowStyle Hidden -RedirectStandardOutput $outLog -RedirectStandardError $errLog
@@ -79,11 +92,20 @@ if (-not (Test-Path $jar)) {
 }
 
 if ($needBuild) {
-    if (Test-Listening 8080) {
-        # 后端在跑 = jar 被 JVM 锁着,`mvn clean` 删不掉 target,重打包必然失败。
-        # 与其抛一堆看不懂的 Maven 报错,不如直接说清怎么办。
-        Write-Host "[提示] 检测到$buildReason,但后端正在运行(8080),jar 被锁着无法重新打包。"
-        Write-Host '       要跑最新代码:先运行 stop-all.bat,再运行本脚本。'
+    # jar 被占用时 `mvn clean` 删不掉 target,会以
+    #   "Unable to rename ... .jar.original"
+    # 这种看不懂的报错收场。与其把 Maven 的报错抛给用户,不如直接说清怎么办。
+    #
+    # 注意:【占用不一定伴随 8080 在监听】。实测遇到过一个卡在关闭流程里的残留 JVM:
+    # 既不监听任何端口,又一直锁着 jar。所以只查端口会漏判,必须同时查文件锁。
+    $portBusy  = Test-Listening 8080
+    $jarLocked = Test-FileLocked $jar
+    if ($portBusy -or $jarLocked) {
+        $why = if ($portBusy) { '后端正在运行(8080)' } else { 'jar 被一个残留的 java 进程占用(它并没有监听 8080)' }
+        Write-Host "[提示] 检测到$buildReason,但 $why,无法重新打包。"
+        Write-Host '       先运行 stop-all.bat;若它显示"未在运行",就手动找出占用者并结束它:'
+        Write-Host '         Get-Process java | Select-Object Id,StartTime'
+        Write-Host '         Stop-Process -Id <PID> -Force'
     } else {
         Write-Host "[构建] $buildReason,正在用 Maven 打包,请稍候 ..."
         Push-Location $backend

@@ -57,9 +57,11 @@ public class AuthService {
         if (user.getStatus() == null || user.getStatus() != 1) {
             throw new BusinessException("账号已被禁用,请联系管理员");
         }
-        String token = jwtUtil.createToken(user.getId(), user.getUsername());
+        // 显式声明认证域:本方法只处理后台账号,签发 admin 域 token。
+        // 站点访客是另一条链路(site_user 表 + SiteAuthInterceptor),两者不可混用。
+        String token = jwtUtil.createToken(user.getId(), user.getUsername(), JwtUtil.SCOPE_ADMIN);
         // 登录态写入 Redis(8h),退出/过期即失效
-        redisTemplate.opsForValue().set(RedisKeys.loginToken(token),
+        redisTemplate.opsForValue().set(RedisKeys.loginTokenAdmin(token),
                 String.valueOf(user.getId()), Duration.ofSeconds(expireSeconds));
 
         Map<String, Object> result = new HashMap<>();
@@ -74,7 +76,7 @@ public class AuthService {
     public void logout(String authorization) {
         if (StringUtils.hasText(authorization) && authorization.startsWith("Bearer ")) {
             String token = authorization.substring(7);
-            redisTemplate.delete(RedisKeys.loginToken(token));
+            redisTemplate.delete(RedisKeys.loginTokenAdmin(token));
         }
     }
 
