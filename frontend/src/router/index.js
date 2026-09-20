@@ -59,6 +59,19 @@ const routes = [
         meta: { title: '关于', desc: '关于我,阶段 1 与首页一起完善。' },
         props: (route) => ({ title: route.meta.title, description: route.meta.desc })
       },
+      // 站点访客认证页:属于公开区(无需登录),放在 SiteLayout 里保持站点外观一致
+      {
+        path: 'signup',
+        name: 'SignUp',
+        component: () => import('@/views/site/SignUp.vue'),
+        meta: { title: '注册' }
+      },
+      {
+        path: 'signin',
+        name: 'SignIn',
+        component: () => import('@/views/site/SignIn.vue'),
+        meta: { title: '登录' }
+      },
       // 公开区兜底 404(放在子路由最后,确保优先匹配上面的具名路由)
       {
         path: ':pathMatch(.*)*',

@@ -61,3 +61,7 @@ aki:
     # 必须替换!命令生成:openssl rand -base64 48
     secret: ${AKI_JWT_SECRET}
     expire-seconds: ${AKI_JWT_EXPIRE_SECONDS:28800}
+  site:
+    # 站点访客注册开关。公开注册一旦被机器人刷爆,把它改成 false 并
+    # systemctl restart aki-admin 即可关闭注册接口,不必改代码重新发版。
+    register-enabled: ${AKI_REGISTER_ENABLED:true}

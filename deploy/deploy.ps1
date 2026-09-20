@@ -320,14 +320,14 @@ Write-Ok "生产环境变量已填写(无 CHANGE_ME 占位符)"
 if (-not $SkipSql) {
     Write-Step '上传 SQL 脚本到服务器 /tmp/aki-sql'
     $sqlDir = Join-Path $repoRoot 'sql'
-    $sqlFiles = @('init.sql', 'homepage_init.sql')
+    $sqlFiles = @('init.sql', 'homepage_init.sql', 'site_user_init.sql')
     $toUpload = $sqlFiles | ForEach-Object { Join-Path $sqlDir $_ } | Where-Object { Test-Path $_ }
     if ($toUpload.Count -gt 0) {
         Invoke-Remote 'rm -rf /tmp/aki-sql && mkdir -p /tmp/aki-sql' | Out-Null
         if ((Invoke-Upload -Paths $toUpload -Destination "${Server}:/tmp/aki-sql/") -ne 0) { throw 'scp 上传 SQL 失败' }
         Write-Ok "已上传: $(($toUpload | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')"
     } else {
-        Write-Warn2 "本地 sql/ 下没找到 init.sql / homepage_init.sql,跳过"
+        Write-Warn2 "本地 sql/ 下没找到 init.sql / homepage_init.sql / site_user_init.sql,跳过"
     }
 }
 
@@ -356,7 +356,11 @@ try {
     # 但库里根本没有表,登录时才报 table doesn't exist。
     # (第 0.5 步传到 /tmp/aki-sql 的那份是给手动导入用的,和这里是两个目录;
     #  这段代码只在"首次部署"时执行,不会每次发版都重复上传。)
-    $initSqlFiles = @('init.sql', 'homepage_init.sql') | ForEach-Object { Join-Path (Join-Path $repoRoot 'sql') $_ } | Where-Object { Test-Path $_ }
+    # 【这是一份建表脚本白名单,不要改成扫描 sql/ 下的所有 *.sql】:
+    # sample_data.sql(示例数据)/ practice_*.sql(练习)/ fix_mojibake.sql(乱码修复)
+    # 都不该被自动导入。新增建表脚本时,在这里和上面的 $sqlFiles 各加一个文件名。
+    # server-init.sh 侧对应的白名单是 IDEMPOTENT_SQLS,两处要保持一致。
+    $initSqlFiles = @('init.sql', 'homepage_init.sql', 'site_user_init.sql') | ForEach-Object { Join-Path (Join-Path $repoRoot 'sql') $_ } | Where-Object { Test-Path $_ }
     $confFiles = @($confFiles) + @($initSqlFiles)
     if ((Invoke-Upload -Paths $confFiles -Destination "${Server}:/tmp/aki-deploy-conf/") -ne 0) { throw 'scp 上传部署配置失败' }
 

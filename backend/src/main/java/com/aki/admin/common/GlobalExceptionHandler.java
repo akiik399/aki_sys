@@ -2,6 +2,7 @@ package com.aki.admin.common;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -37,6 +38,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public Result<Void> handleNoResource(NoResourceFoundException e) {
         return Result.error(404, "接口不存在: " + e.getResourcePath());
+    }
+
+    /**
+     * 依赖服务(Redis / 数据库)不可用。
+     *
+     * 不加这个分支的话,Redis 挂掉时会被兜底成
+     *   "系统异常: Error in execution"  或  "token 无效或已过期"
+     * —— 前者看不出是 Redis,后者更糟:它把"登录态服务不可用"说成"你的 token 有问题",
+     * 排查方向会被直接带偏(本项目真踩过:Redis 存不了盘导致登录全线失败,
+     * 报的却是 token 相关错误)。
+     *
+     * 返回 503(服务不可用)而不是 500,语义上更准确:这不是代码 bug,是依赖故障。
+     */
+    @ExceptionHandler(DataAccessException.class)
+    public Result<Void> handleDataAccess(DataAccessException e) {
+        log.error("数据访问依赖不可用(Redis / 数据库)", e);
+        return Result.error(503, "服务依赖暂时不可用(Redis / 数据库),请稍后重试");
     }
 
     @ExceptionHandler(Exception.class)

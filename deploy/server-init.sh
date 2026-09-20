@@ -355,24 +355,36 @@ elif [[ ! -f "${SQL_DIR}/init.sql" ]]; then
     warn "没找到 init.sql,请手动导入(务必带字符集参数,否则中文会双重编码成乱码):"
     echo "      mysql --default-character-set=utf8mb4 -u root -p < sql/init.sql"
     echo "      mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql"
+    echo "      mysql --default-character-set=utf8mb4 -u root -p < sql/site_user_init.sql"
 fi
 
-# 个人主页内容表(homepage_init.sql)。
-# 它和 init.sql 性质不同:全部是 CREATE TABLE IF NOT EXISTS,幂等、不清数据,
-# 所以不需要像 init.sql 那样先判断库是否存在,每次都可以安全执行。
-# 漏掉它的后果很容易被忽略:sys_user / sys_role 建好了、后端也能起来,
-# 但 site_profile / site_project / site_post 等七张表不存在 ——
-# 公开主页和后台内容管理一访问就报 table doesn't exist。
-if [[ "$MYSQL_MODE" != "none" && -f "${SQL_DIR}/homepage_init.sql" ]]; then
-    if mysql_import "${SQL_DIR}/homepage_init.sql"; then
-        ok "已执行 homepage_init.sql(个人主页内容表,幂等)"
-    else
-        warn "执行 homepage_init.sql 失败(库 aki_sys 是否已建?),请手动导入:"
-        echo "      mysql --default-character-set=utf8mb4 -u root -p < ${SQL_DIR}/homepage_init.sql"
-    fi
-elif [[ "$MYSQL_MODE" != "none" ]]; then
-    warn "没找到 homepage_init.sql,个人主页的七张 site_* 表不会创建"
-    echo "      手动导入:mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql"
+# 增量建表脚本:它们和 init.sql 性质不同 —— 全部是 CREATE TABLE IF NOT EXISTS,
+# 幂等、不清数据,所以不需要像 init.sql 那样先判断库是否存在,每次都可以安全执行。
+#
+# ⚠️ 这里是一份**白名单**,不要改成遍历 sql/ 下的所有 *.sql:
+#      sample_data.sql  (示例角色/用户,练习用)
+#      practice_*.sql   (练习题)
+#      fix_mojibake.sql (乱码修复)
+#    这几个都不该被自动执行。新增幂等建表脚本时,只需往这个数组里加一个文件名。
+#
+# 漏掉某个脚本的后果很容易被忽略:sys_user / sys_role 建好了、后端也能起来,
+# 但对应的表不存在 —— 比如少了 site_user_init.sql,注册接口一调就报
+# table doesn't exist,而部署过程本身显示"全绿"。
+IDEMPOTENT_SQLS=("homepage_init.sql" "site_user_init.sql")
+if [[ "$MYSQL_MODE" != "none" ]]; then
+    for sql_name in "${IDEMPOTENT_SQLS[@]}"; do
+        if [[ ! -f "${SQL_DIR}/${sql_name}" ]]; then
+            warn "没找到 ${sql_name},它对应的表不会创建"
+            echo "      手动导入:mysql --default-character-set=utf8mb4 -u root -p < sql/${sql_name}"
+            continue
+        fi
+        if mysql_import "${SQL_DIR}/${sql_name}"; then
+            ok "已执行 ${sql_name}(幂等)"
+        else
+            warn "执行 ${sql_name} 失败(库 aki_sys 是否已建?),请手动导入:"
+            echo "      mysql --default-character-set=utf8mb4 -u root -p < ${SQL_DIR}/${sql_name}"
+        fi
+    done
 fi
 
 # 应用专用数据库账号:比直接用 root 更好 —— 万一被注入,影响面只有这一个库
@@ -704,7 +716,8 @@ cat <<EOF
     1) 与本仓库 sql/ 一起上传后导入表结构(中文务必带字符集参数):
          mysql --default-character-set=utf8mb4 -u root -p < sql/init.sql
          mysql --default-character-set=utf8mb4 -u root -p < sql/homepage_init.sql
-       (init.sql 已由本脚本自动执行过则跳过它)
+         mysql --default-character-set=utf8mb4 -u root -p < sql/site_user_init.sql
+       (init.sql 与上面两个幂等脚本已由本脚本自动执行过则跳过)
     2) 填好 /etc/aki-admin/aki-admin.env 里的密码
     3) 回本地执行:  .\\deploy\\deploy.ps1 -Server root@<服务器IP>
     4) 部署完后在服务器上确认:

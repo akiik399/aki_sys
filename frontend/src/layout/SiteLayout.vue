@@ -19,7 +19,28 @@
           </router-link>
         </nav>
 
-        <router-link :to="adminEntry" class="admin-link">后台</router-link>
+        <div class="header-right">
+          <router-link :to="adminEntry" class="admin-link">后台</router-link>
+
+          <!-- 站点访客登录态:未登录显示登录/注册,已登录显示昵称 -->
+          <template v-if="siteUser.isLoggedIn">
+            <el-dropdown @command="handleCommand">
+              <span class="user-chip">
+                {{ siteUser.displayName || '我的账号' }}
+                <el-icon><ArrowDown /></el-icon>
+              </span>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </template>
+          <template v-else>
+            <router-link to="/signin" class="auth-link">登录</router-link>
+            <router-link to="/signup" class="auth-link primary">注册</router-link>
+          </template>
+        </div>
       </div>
     </header>
 
@@ -35,8 +56,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { ArrowDown } from '@element-plus/icons-vue'
 import {
   siteName,
   siteShortName,
@@ -44,9 +67,37 @@ import {
   navItems,
   adminEntry
 } from '@/config/site'
+import { useSiteUserStore } from '@/store/siteUser'
 
 const route = useRoute()
+const siteUser = useSiteUserStore()
 const year = computed(() => new Date().getFullYear())
+
+/**
+ * 站点 token 失效时,siteRequest 的响应拦截器会广播 site-auth-expired。
+ * 在这里清掉 Pinia 状态,导航栏就能立刻回到"未登录"外观 ——
+ * 拦截器刻意不做跳转(访客可能只是在浏览公开页面,不该被弹走)。
+ */
+function onAuthExpired() {
+  siteUser.clear()
+}
+
+onMounted(() => {
+  // 刷新页面后靠它把昵称补回来(有没有 token 由 store 内部判断)
+  siteUser.fetchMe()
+  window.addEventListener('site-auth-expired', onAuthExpired)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('site-auth-expired', onAuthExpired)
+})
+
+async function handleCommand(command) {
+  if (command === 'logout') {
+    await siteUser.logout()
+    ElMessage.success('已退出登录')
+  }
+}
 
 // 首页只在精确匹配时高亮,其余按前缀匹配(/posts/xxx 也算"文章")
 function isActive(path) {
@@ -183,6 +234,58 @@ function isActive(path) {
   background: linear-gradient(120deg, #2b6cff, #6d5cf6);
   border-color: transparent;
   box-shadow: 0 8px 18px -8px rgba(43, 108, 255, 0.7);
+}
+
+/* ---------- 右侧:后台入口 + 站点访客登录态 ---------- */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #1f2329;
+  cursor: pointer;
+  padding: 5px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(43, 108, 255, 0.2);
+  transition: all 0.18s;
+}
+
+.user-chip:hover {
+  border-color: rgba(43, 108, 255, 0.45);
+  color: #2b6cff;
+}
+
+.auth-link {
+  font-size: 13px;
+  color: #5a6472;
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 20px;
+  transition: all 0.18s;
+}
+
+.auth-link:hover {
+  color: #2b6cff;
+  background: rgba(43, 108, 255, 0.08);
+}
+
+.auth-link.primary {
+  color: #fff;
+  background: linear-gradient(120deg, #2b6cff, #6d5cf6);
+  box-shadow: 0 8px 18px -10px rgba(43, 108, 255, 0.8);
+}
+
+.auth-link.primary:hover {
+  color: #fff;
+  transform: translateY(-1px);
 }
 
 /* ---------- 内容与页脚 ---------- */

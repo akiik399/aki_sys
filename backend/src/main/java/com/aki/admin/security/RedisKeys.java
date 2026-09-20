@@ -39,4 +39,27 @@ public final class RedisKeys {
     public static String siteUserTokens(Long siteUserId) {
         return SITE_USER_TOKENS + siteUserId;
     }
+
+    // ---------------- 站点访客:验证码与限流 ----------------
+
+    /** 图形验证码答案:captchaId -> 答案(小写),一次性消费 */
+    public static final String CAPTCHA = "aki:captcha:";
+
+    /** 注册接口按来源 IP 限流(固定窗口计数) */
+    public static final String RATE_REGISTER_IP = "aki:rate:reg:ip:";
+
+    /** 登录接口按来源 IP 限流(防密码暴力破解) */
+    public static final String RATE_LOGIN_IP = "aki:rate:login:ip:";
+
+    public static String captcha(String captchaId) {
+        return CAPTCHA + captchaId;
+    }
+
+    public static String rateRegisterIp(String ip) {
+        return RATE_REGISTER_IP + ip;
+    }
+
+    public static String rateLoginIp(String ip) {
+        return RATE_LOGIN_IP + ip;
+    }
 }
